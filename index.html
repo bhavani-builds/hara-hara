@@ -1,0 +1,692 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Lord Shiva — Interactive Night Sky</title>
+<style>
+  :root{
+    --bg-dark: #050922;
+    --bg-light: #f5f6f9;
+    --panel-dark: rgba(255,255,255,0.03);
+    --accent: #f6a400;
+    --muted: #9fb4d1;
+    --glass: rgba(255,255,255,0.03);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%; margin:0; font-family:Inter,system-ui,Segoe UI,Roboto,"Noto Sans",Arial;}
+  body{ background: radial-gradient(ellipse at 20% 10%, rgba(20,32,60,0.6), transparent 20%), radial-gradient(ellipse at 80% 90%, rgba(12,20,40,0.6), transparent 20%), var(--bg-dark); display:flex; align-items:center; justify-content:center; color:#fff; overflow:hidden; transition:background 400ms ease; }
+
+  /* Stage / Card */
+  .stage {
+    width: min(1150px, 95vw);
+    height: min(920px, 92vh);
+    position: relative;
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 30px 80px rgba(2,6,23,0.7), inset 0 1px 0 rgba(255,255,255,0.02);
+    background: linear-gradient(180deg, rgba(2,8,22,0.5), rgba(0,0,0,0.35));
+  }
+
+  /* layered canvases */
+  canvas { position:absolute; left:0; top:0; width:100%; height:100%; display:block; }
+
+  /* center content */
+  .center-wrap {
+    position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); z-index:10; pointer-events:none;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .card {
+    width: clamp(280px, 44%, 520px);
+    border-radius: 14px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+    padding:12px;
+    box-shadow: 0 12px 40px rgba(2,6,23,0.6);
+    border:1px solid rgba(255,255,255,0.03);
+    position:relative;
+    transform-style:preserve-3d;
+    pointer-events:auto;
+  }
+  .img-wrap { position:relative; width:100%; padding:8px; border-radius:10px; background:transparent; display:block; }
+  .shiva-img {
+    width:100%; height:auto; display:block; border-radius:10px; transform-style:preserve-3d; transition: transform 220ms ease, filter 220ms ease;
+    filter: drop-shadow(0 24px 40px rgba(0,0,0,0.55));
+  }
+
+  /* rotating ring */
+  .ring {
+    position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); z-index:9; pointer-events:none;
+    width: calc(clamp(280px, 44%, 520px) + 40px);
+    height: calc(clamp(280px, 44%, 520px) + 40px);
+    border-radius:50%;
+    display:block;
+    mix-blend-mode:screen;
+  }
+  .ring svg{ width:100%; height:100%; transform-origin:center; animation: rotateSlow 18s linear infinite; opacity:0.9; filter: blur(6px) saturate(1.05); }
+  @keyframes rotateSlow { from{transform: rotate(0deg)} to{transform: rotate(360deg)} }
+
+  /* Typing UI */
+  .ui-bottom {
+    position:absolute; left:50%; transform:translateX(-50%); bottom:18px; z-index:12; pointer-events:auto; width:90%;
+    display:flex; justify-content:center; gap:12px;
+  }
+  .type-box {
+    display:flex; gap:12px; align-items:center; padding:10px 16px; border-radius:26px; background: linear-gradient(90deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); border:1px solid rgba(255,255,255,0.03); backdrop-filter: blur(6px);
+  }
+  .dot { width:12px; height:12px; border-radius:50%; background:var(--accent); box-shadow:0 0 14px rgba(246,164,0,0.95); }
+  .type-text { font-size:18px; color:#fff; min-width:220px; text-align:center; font-weight:600; }
+
+  /* top-left controls */
+  .controls { position:absolute; left:16px; top:14px; z-index:14; display:flex; gap:10px; align-items:center; }
+  .control-btn { background:var(--glass); color:var(--muted); border-radius:10px; padding:8px 10px; border:1px solid rgba(255,255,255,0.03); cursor:pointer; font-weight:600; }
+  .switch { display:inline-flex; align-items:center; gap:8px; }
+
+  /* story panel right */
+  .story {
+    position:absolute; right:16px; top:16px; z-index:14; width:300px; max-width:36%;
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+    border-radius:10px; padding:12px; border:1px solid rgba(255,255,255,0.03); color:var(--muted); font-size:14px; backdrop-filter: blur(6px);
+  }
+  .story h3{ margin:0 0 8px 0; color:#fff; font-size:16px;}
+  .story p{ margin:6px 0; line-height:1.45; }
+
+  /* loader overlay */
+  .loader {
+    position:fixed; inset:0; z-index:40; display:flex; align-items:center; justify-content:center; background:linear-gradient(180deg, rgba(1,6,15,0.95), rgba(2,8,20,0.9));
+  }
+  .loader.hidden{ opacity:0; pointer-events:none; transition:opacity 700ms ease; }
+
+  /* trishul svg size inside loader */
+  .loader .trishul { width:220px; height:220px; filter: drop-shadow(0 22px 60px rgba(0,0,0,0.6)); }
+  .glowPulse { animation: pulseGlow 1.6s ease-in-out infinite; transform-origin:center; }
+  @keyframes pulseGlow { 0%{ opacity:0.35; transform:scale(0.95) } 50%{ opacity:1; transform:scale(1.05)} 100%{ opacity:0.35; transform:scale(0.95) } }
+
+  /* small help */
+  .hint { position:absolute; left:16px; bottom:20px; z-index:13; color:rgba(255,255,255,0.6); font-size:13px; }
+
+  /* OM hover hotspot */
+  .om-hotspot {
+    position:absolute; left:50%; top:62%; transform:translate(-50%,-50%); z-index:11; pointer-events:auto;
+    width:120px; height:120px; border-radius:999px; background:transparent; transition:box-shadow 220ms ease;
+  }
+
+  /* bottom-left audio control */
+  .audio-control { position:absolute; left:20px; bottom:20px; z-index:13; display:flex; gap:8px; align-items:center; }
+
+  /* mode toggle */
+  .mode-toggle { position:absolute; right:18px; bottom:18px; z-index:13; }
+
+  /* responsive tweaks */
+  @media (max-width:900px){
+    .story{ display:none; }
+    .ring{ display:none; }
+    .type-text{ min-width:140px; font-size:15px; }
+    .om-hotspot{ width:90px; height:90px; top:64% }
+  }
+</style>
+</head>
+<body>
+
+<!-- Loader -->
+<div id="loader" class="loader" aria-hidden="false">
+  <div style="text-align:center; color:#fff;">
+    <div class="trishul" aria-hidden="true">
+      <!-- Trishul SVG -->
+      <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <radialGradient id="tg" cx="50%" cy="35%">
+            <stop offset="0%" stop-color="#FFD27A"/>
+            <stop offset="60%" stop-color="#F59E0B"/>
+            <stop offset="100%" stop-color="#B35A00"/>
+          </radialGradient>
+        </defs>
+        <g transform="translate(30,5)">
+          <path class="glowPulse" fill="url(#tg)" d="M85 10 C90 25 110 24 110 45 C110 70 85 78 85 90 C85 95 90 98 90 110 L95 170 L105 170 L110 110 C110 98 115 95 115 90 C115 78 90 70 90 45 C90 24 110 25 115 10 L85 10 Z"/>
+          <circle cx="90" cy="178" r="4" fill="#f59e0b"/>
+        </g>
+      </svg>
+    </div>
+    <div style="margin-top:14px; font-weight:700; color: #ffe9c7">Har Har Mahadev</div>
+  </div>
+</div>
+
+<!-- Stage -->
+<div class="stage" id="stage">
+
+  <!-- Canvases -->
+  <canvas id="nebula"></canvas>
+  <canvas id="stars"></canvas>
+  <canvas id="floaters"></canvas>
+  <canvas id="clickParticles"></canvas>
+  <canvas id="dotArt" style="z-index:7;"></canvas> <!-- for dot-art conversion -->
+
+  <!-- Rotating ring -->
+  <div class="ring" aria-hidden="true">
+    <svg viewBox="0 0 300 300">
+      <defs>
+        <linearGradient id="rg" x1="0" x2="1">
+          <stop offset="0" stop-color="#fbeac0" />
+          <stop offset="0.45" stop-color="#f59e0b" />
+          <stop offset="1" stop-color="#f59e0b" stop-opacity="0.4" />
+        </linearGradient>
+      </defs>
+      <g transform="translate(150,150)">
+        <path d="M -120 0 A 120 120 0 1 1 119.9 -0.1" stroke="url(#rg)" stroke-width="4" fill="none" stroke-linecap="round" opacity="0.8"/>
+      </g>
+    </svg>
+  </div>
+
+  <!-- Center image card -->
+  <div class="center-wrap" id="centerWrap">
+    <div class="card" id="card">
+      <div class="img-wrap">
+        <!-- Your image file must be named "shiva.png" and be in same folder -->
+        <img id="shivaImg" class="shiva-img" src="shiva.png" alt="Lord Shiva" />
+        <!-- clickable OM hotspot (positioned over chest where OM is) -->
+        <div id="omHot" class="om-hotspot" title="Hover to glow OM"></div>
+      </div>
+      <div style="display:flex; gap:8px; margin-top:8px; justify-content:center;">
+        <button class="control-btn" id="convertBtn" title="Convert image to dot-art">Convert to Dot-Art</button>
+        <button class="control-btn" id="restoreBtn" title="Restore image" style="display:none">Restore Image</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- UI bottom (typing) -->
+  <div class="ui-bottom">
+    <div class="type-box">
+      <div class="dot" aria-hidden="true"></div>
+      <div id="typeText" class="type-text">ॐ नमः शिवाय</div>
+    </div>
+  </div>
+
+  <!-- Controls top-left -->
+  <div class="controls" role="toolbar" aria-label="Controls">
+    <div class="switch">
+      <button id="audioToggle" class="control-btn">🔈 Chant ON</button>
+    </div>
+    <div class="switch">
+      <button id="modeToggle" class="control-btn">🌙 Dark</button>
+    </div>
+  </div>
+
+  <!-- story panel -->
+  <div class="story" id="storyPanel">
+    <h3>About Lord Shiva</h3>
+    <p><strong>ॐ</strong> — The primordial sound representing cosmic reality. "ॐ नमः शिवाय" is a powerful mantra invoking Lord Shiva.</p>
+    <p><strong>Trinetra:</strong> Shiva's third eye represents wisdom and destruction of ignorance.</p>
+    <p><strong>Jata & Ganga:</strong> The matted hair holds the river Ganga, symbolizing auspiciousness and flow of consciousness.</p>
+    <p style="margin-top:8px; font-weight:700; color:#fff">Click anywhere to send golden blessings ✨</p>
+  </div>
+
+  <div class="hint">Press <strong>Space</strong> to chant Om & pulse light</div>
+
+</div>
+
+<!-- Audio element (hidden) -->
+<audio id="chant" loop preload="auto">
+  <!-- Small placeholder sound. Replace "chant.mp3" with your chosen mantra file if available -->
+  <!-- If you don't have a file, the toggle will mute/unmute and still pulse visuals. -->
+  <source src="chant.mp3" type="audio/mpeg">
+  <source src="" type="">
+</audio>
+
+<script>
+/* =========================================================================
+   Full features script - all functionality in one place.
+   Make sure shiva.png and optionally chant.mp3 are in same folder.
+   ========================================================================= */
+
+const stage = document.getElementById('stage');
+const nebulaC = document.getElementById('nebula');
+const starsC = document.getElementById('stars');
+const floatC = document.getElementById('floaters');
+const clicksC = document.getElementById('clickParticles');
+const dotC = document.getElementById('dotArt');
+
+const nebulaCtx = nebulaC.getContext('2d');
+const starsCtx = starsC.getContext('2d');
+const floatCtx = floatC.getContext('2d');
+const clicksCtx = clicksC.getContext('2d');
+const dotCtx = dotC.getContext('2d');
+
+const shivaImg = document.getElementById('shivaImg');
+const omHot = document.getElementById('omHot');
+const convertBtn = document.getElementById('convertBtn');
+const restoreBtn = document.getElementById('restoreBtn');
+const loader = document.getElementById('loader');
+const chant = document.getElementById('chant');
+const audioToggle = document.getElementById('audioToggle');
+const typeEl = document.getElementById('typeText');
+const modeToggle = document.getElementById('modeToggle');
+
+let dpr = window.devicePixelRatio || 1;
+
+function fitCanvases(){
+  const rect = stage.getBoundingClientRect();
+  [nebulaC, starsC, floatC, clicksC, dotC].forEach(c => {
+    c.width = Math.round(rect.width * dpr);
+    c.height = Math.round(rect.height * dpr);
+    c.style.width = rect.width + 'px';
+    c.style.height = rect.height + 'px';
+    const ctx = c.getContext('2d');
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  });
+}
+window.addEventListener('resize', () => { fitCanvases(); initAll(); } );
+
+fitCanvases();
+
+/* ------------------ NEBULA ------------------- */
+const nebula = [];
+const NEB = 20;
+function initNebula(){
+  nebula.length=0;
+  const w = nebulaC.width/dpr;
+  const h = nebulaC.height/dpr;
+  for(let i=0;i<NEB;i++){
+    nebula.push({
+      x: Math.random()*w,
+      y: Math.random()*h,
+      size: 80 + Math.random()*260,
+      hue: 200 + Math.random()*60,
+      sat: 40 + Math.random()*40,
+      light: 10 + Math.random()*24,
+      alpha: 0.06 + Math.random()*0.22,
+      vx: (Math.random()-0.5)*0.04,
+      vy: (Math.random()-0.5)*0.04
+    });
+  }
+}
+function drawNebula(dt){
+  nebulaCtx.clearRect(0,0,nebulaC.width/dpr,nebulaC.height/dpr);
+  nebulaCtx.globalCompositeOperation = 'lighter';
+  for(const p of nebula){
+    p.x += p.vx * dt * 0.06;
+    p.y += p.vy * dt * 0.06;
+    const g = nebulaCtx.createRadialGradient(p.x, p.y, p.size*0.05, p.x, p.y, p.size);
+    g.addColorStop(0, `hsla(${p.hue}, ${p.sat}%, ${p.light}%, ${p.alpha})`);
+    g.addColorStop(0.5, `hsla(${p.hue+18}, ${p.sat-10}%, ${p.light-6}%, ${p.alpha*0.56})`);
+    g.addColorStop(1, 'rgba(2,6,14,0)');
+    nebulaCtx.fillStyle = g;
+    nebulaCtx.beginPath();
+    nebulaCtx.arc(p.x, p.y, p.size, 0, Math.PI*2);
+    nebulaCtx.fill();
+  }
+  nebulaCtx.globalCompositeOperation = 'source-over';
+}
+
+/* ------------------ STARS ------------------- */
+const stars = [];
+const STAR_COUNT = 320;
+function initStars(){
+  stars.length=0;
+  const w = starsC.width/dpr;
+  const h = starsC.height/dpr;
+  for(let i=0;i<STAR_COUNT;i++){
+    stars.push({
+      x: Math.random()*w,
+      y: Math.random()*h,
+      r: Math.random()*1.6,
+      phase: Math.random()*Math.PI*2,
+      speed: 0.002 + Math.random()*0.01,
+      alpha: 0.5 + Math.random()*0.75
+    });
+  }
+}
+function drawStars(dt){
+  starsCtx.clearRect(0,0,starsC.width/dpr,starsC.height/dpr);
+  for(const s of stars){
+    s.phase += s.speed * dt * 0.002;
+    const tw = 0.55 + 0.45 * Math.sin(s.phase);
+    starsCtx.globalAlpha = s.alpha * tw;
+    const rad = s.r + tw*0.8;
+    const g = starsCtx.createRadialGradient(s.x, s.y, 0, s.x, s.y, rad*3);
+    g.addColorStop(0, 'rgba(255,255,255,1)');
+    g.addColorStop(0.18, 'rgba(255,230,180,0.7)');
+    g.addColorStop(1, 'rgba(255,230,180,0)');
+    starsCtx.fillStyle = g;
+    starsCtx.beginPath();
+    starsCtx.arc(s.x, s.y, rad*2, 0, Math.PI*2);
+    starsCtx.fill();
+  }
+  starsCtx.globalAlpha = 1;
+}
+
+/* ------------------ FLOATERS (golden floating dots) ------------------- */
+const floaters = [];
+const FLOATER_COUNT = 60;
+function initFloaters(){
+  floaters.length=0;
+  const w = floatC.width/dpr;
+  const h = floatC.height/dpr;
+  for(let i=0;i<FLOATER_COUNT;i++){
+    floaters.push({
+      x: Math.random()*w,
+      y: Math.random()*h,
+      r: 0.9 + Math.random()*3.6,
+      vx: (Math.random()-0.5)*0.3,
+      vy: (Math.random()-0.5)*0.2,
+      life: 2000 + Math.random()*4000,
+      phase: Math.random()*Math.PI*2
+    });
+  }
+}
+function drawFloaters(dt){
+  floatCtx.clearRect(0,0,floatC.width/dpr,floatC.height/dpr);
+  floatCtx.globalCompositeOperation = 'lighter';
+  for(const f of floaters){
+    f.x += f.vx * dt * 0.02;
+    f.y += f.vy * dt * 0.02;
+    f.phase += 0.004 * dt;
+    const op = 0.4 + 0.6 * Math.abs(Math.sin(f.phase));
+    const grad = floatCtx.createRadialGradient(f.x, f.y, 0, f.x, f.y, f.r*6);
+    grad.addColorStop(0, `rgba(255,244,200,${op})`);
+    grad.addColorStop(0.3, `rgba(246,164,11,${op*0.9})`);
+    grad.addColorStop(1, `rgba(120,54,6,0)`);
+    floatCtx.fillStyle = grad;
+    floatCtx.beginPath();
+    floatCtx.arc(f.x, f.y, f.r, 0, Math.PI*2);
+    floatCtx.fill();
+  }
+  floatCtx.globalCompositeOperation = 'source-over';
+}
+
+/* ------------------ CLICK PARTICLES ------------------- */
+const clicks = [];
+function spawnClick(x,y){
+  const count = 70 + Math.floor(Math.random()*70);
+  for(let i=0;i<count;i++){
+    const a = Math.random()*Math.PI*2;
+    const s = 1 + Math.random()*6;
+    clicks.push({
+      x, y,
+      vx: Math.cos(a)*s,
+      vy: Math.sin(a)*s - (Math.random()*0.6),
+      r: 0.8 + Math.random()*3.2,
+      life: 600 + Math.random()*1400,
+      t: 0
+    });
+  }
+}
+function drawClicks(dt){
+  clicksCtx.clearRect(0,0,clicksC.width/dpr,clicksC.height/dpr);
+  clicksCtx.globalCompositeOperation = 'lighter';
+  for(let i=clicks.length-1;i>=0;i--){
+    const p = clicks[i];
+    p.t += dt;
+    if(p.t > p.life){ clicks.splice(i,1); continue; }
+    p.vy += 0.03 * (dt*0.02);
+    p.x += p.vx * (dt*0.02);
+    p.y += p.vy * (dt*0.02);
+    const op = 1 - (p.t / p.life);
+    const g = clicksCtx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r*6);
+    g.addColorStop(0, `rgba(255,238,170,${0.95*op})`);
+    g.addColorStop(0.25, `rgba(246,164,11,${0.9*op})`);
+    g.addColorStop(1, `rgba(120,54,6,${0})`);
+    clicksCtx.fillStyle = g;
+    clicksCtx.beginPath();
+    clicksCtx.arc(p.x, p.y, Math.max(1,p.r*(1+0.25*Math.sin(p.t*0.02))), 0, Math.PI*2);
+    clicksCtx.fill();
+  }
+  clicksCtx.globalCompositeOperation = 'source-over';
+}
+
+/* ------------------ DOT-ART CONVERTER ------------------- */
+let dotArtActive = false;
+convertBtn.addEventListener('click', ()=>{
+  if(!dotArtActive) convertToDots();
+});
+restoreBtn.addEventListener('click', restoreImage);
+
+function convertToDots(){
+  // draw image to dot canvas, sample, and draw dots
+  const rect = stage.getBoundingClientRect();
+  const cw = dotC.width/dpr, ch = dotC.height/dpr;
+  dotCtx.clearRect(0,0,cw,ch);
+  // draw image centered
+  const tmp = document.createElement('canvas');
+  const tctx = tmp.getContext('2d');
+  tmp.width = shivaImg.naturalWidth;
+  tmp.height = shivaImg.naturalHeight;
+  tctx.drawImage(shivaImg,0,0);
+  // sample target area size mapping
+  // target draw size (equal to displayed img)
+  const imgRect = shivaImg.getBoundingClientRect();
+  const scale = imgRect.width / tmp.width;
+  const targetW = tmp.width * scale, targetH = tmp.height * scale;
+  // create an offscreen scaled image
+  const off = document.createElement('canvas');
+  off.width = Math.round(targetW);
+  off.height = Math.round(targetH);
+  const offCtx = off.getContext('2d');
+  offCtx.drawImage(shivaImg, 0, 0, off.width, off.height);
+
+  const spacing = Math.max(3, Math.floor(6)); // spacing px
+  const imgData = offCtx.getImageData(0,0, off.width, off.height);
+  const outX = (cw - off.width)/2, outY = (ch - off.height)/2;
+  const coords = [];
+  for(let y=0;y<off.height;y+=spacing){
+    for(let x=0;x<off.width;x+=spacing){
+      const i = (y*off.width + x) * 4;
+      const r = imgData.data[i], g = imgData.data[i+1], b = imgData.data[i+2], a = imgData.data[i+3];
+      if(a > 20){
+        const brightness = (r+g+b)/3;
+        coords.push({x: outX + x + (Math.random()*0.8-0.4)*2, y: outY + y + (Math.random()*0.8-0.4)*2, size: Math.max(0.6, (1 - brightness/255) * 4 + 0.6), color: `rgb(${r},${g},${b})`});
+      }
+    }
+  }
+  // hide real image, draw dots
+  shivaImg.style.opacity = 0;
+  dotArtActive = true;
+  convertBtn.style.display='none';
+  restoreBtn.style.display='inline-block';
+  // animate dots drawing
+  let drawn = 0;
+  function drawChunk(){
+    const per = 600;
+    const end = Math.min(coords.length, drawn + per);
+    for(let i=drawn;i<end;i++){
+      const p = coords[i];
+      dotCtx.beginPath();
+      const g = dotCtx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size*4);
+      g.addColorStop(0, p.color);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      dotCtx.fillStyle = g;
+      dotCtx.arc(p.x, p.y, p.size, 0, Math.PI*2);
+      dotCtx.fill();
+    }
+    drawn = end;
+    if(drawn < coords.length) requestAnimationFrame(drawChunk);
+  }
+  drawChunk();
+}
+
+function restoreImage(){
+  dotCtx.clearRect(0,0,dotC.width/dpr, dotC.height/dpr);
+  shivaImg.style.opacity = 1;
+  dotArtActive = false;
+  convertBtn.style.display='inline-block';
+  restoreBtn.style.display='none';
+}
+
+/* ------------------ OM hover glow ------------------- */
+omHot.addEventListener('mouseenter', ()=> {
+  omHot.style.boxShadow = '0 0 30px 10px rgba(246,164,11,0.35), inset 0 0 20px rgba(255,240,180,0.25)';
+  // small pulse
+  flashGlow();
+});
+omHot.addEventListener('mouseleave', ()=> {
+  omHot.style.boxShadow = 'none';
+});
+function flashGlow(){
+  // pulse by creating a few click particles around OM center
+  const rect = omHot.getBoundingClientRect();
+  const sRect = stage.getBoundingClientRect();
+  const x = (rect.left - sRect.left) + rect.width/2;
+  const y = (rect.top - sRect.top) + rect.height/2;
+  spawnClickAt(stage, x, y);
+}
+
+/* helper spawn utility that maps to canvas coords */
+function spawnClickAt(container, x, y){
+  const rect = stage.getBoundingClientRect();
+  const cx = x * (clicksC.width/dpr) / rect.width;
+  const cy = y * (clicksC.height/dpr) / rect.height;
+  spawnClick(cx, cy);
+}
+
+/* ------------------ Image 3D tilt ------------------- */
+const card = document.getElementById('card');
+const centerWrap = document.getElementById('centerWrap');
+centerWrap.addEventListener('mousemove', (e)=>{
+  const r = centerWrap.getBoundingClientRect();
+  const cx = r.left + r.width/2;
+  const cy = r.top + r.height/2;
+  const dx = (e.clientX - cx) / (r.width/2);
+  const dy = (e.clientY - cy) / (r.height/2);
+  const rx = dy * 6; // tilt sensitivity
+  const ry = dx * -8;
+  const s = 1.02;
+  card.style.transform = `perspective(900px) rotateX(${rx}deg) rotateY(${ry}deg) scale(${s})`;
+  shivaImg.style.transform = `translateZ(20px) rotateX(${rx*0.25}deg) rotateY(${ry*0.25}deg)`;
+});
+centerWrap.addEventListener('mouseleave', ()=>{
+  card.style.transform = '';
+  shivaImg.style.transform = '';
+});
+
+/* ------------------ Mode toggle ------------------- */
+let darkMode = true;
+modeToggle.addEventListener('click', ()=>{
+  darkMode = !darkMode;
+  if(darkMode){
+    document.body.style.background = 'radial-gradient(ellipse at 20% 10%, rgba(20,32,60,0.6), transparent 20%), radial-gradient(ellipse at 80% 90%, rgba(12,20,40,0.6), transparent 20%), var(--bg-dark)';
+    modeToggle.textContent = '🌙 Dark';
+  } else {
+    document.body.style.background = 'linear-gradient(180deg, #f6f7fa, #e8eef8)';
+    modeToggle.textContent = '☀️ Light';
+  }
+});
+
+/* ------------------ Audio toggles ------------------- */
+let audioOn = false;
+audioToggle.addEventListener('click', ()=>{
+  audioOn = !audioOn;
+  if(audioOn){
+    // try play; browsers may block autoplay if not interacted
+    chant.volume = 0.7;
+    chant.play().catch(()=>{ /* ignore */ });
+    audioToggle.textContent = '🔊 Chant ON';
+  } else {
+    chant.pause();
+    audioToggle.textContent = '🔈 Chant OFF';
+  }
+});
+window.addEventListener('keydown', (e)=>{
+  if(e.code === 'Space'){
+    // avoid scrolling
+    e.preventDefault();
+    // play/pulse
+    audioOn = true;
+    chant.currentTime = 0;
+    chant.volume = 0.8;
+    chant.play().catch(()=>{/* ignore */});
+    audioToggle.textContent = '🔊 Chant ON';
+    // pulse center
+    const rect = stage.getBoundingClientRect();
+    spawnClick(rect.width/2 * (clicksC.width/dpr/rect.width), rect.height/2 * (clicksC.height/dpr/rect.height));
+  }
+});
+
+/* ------------------ Stage click handler (spawn particles) ------------------- */
+stage.addEventListener('click', (ev)=>{
+  const rect = stage.getBoundingClientRect();
+  const x = (ev.clientX - rect.left) * (clicksC.width/dpr) / rect.width;
+  const y = (ev.clientY - rect.top) * (clicksC.height/dpr) / rect.height;
+  spawnClick(x,y);
+});
+
+/* ------------------ animation loop ------------------- */
+let last = performance.now();
+function animate(now){
+  const dt = Math.min(60, now - last);
+  last = now;
+  drawNebula(dt);
+  drawStars(dt);
+  drawFloaters(dt);
+  drawClicks(dt);
+  requestAnimationFrame(animate);
+}
+requestAnimationFrame(animate);
+
+/* ------------------ initAll ------------------- */
+function initAll(){
+  fitCanvases();
+  initNebula();
+  initStars();
+  initFloaters();
+}
+initAll();
+
+/* initial loader hide & gentle entrance */
+setTimeout(()=>{
+  // small center burst
+  const rect = stage.getBoundingClientRect();
+  const cx = (rect.width/2) * (clicksC.width/dpr/rect.width);
+  const cy = (rect.height/2 - 40) * (clicksC.height/dpr/rect.height);
+  spawnClick(cx, cy);
+  setTimeout(()=>{ loader.classList.add('hidden'); setTimeout(()=>loader.style.display='none',700); }, 1100);
+}, 700);
+
+/* ------------------ utility spawn helper (used earlier) ------------------- */
+function spawnClick(cx, cy){
+  // clamp mapping for safety
+  const w = clicksC.width/dpr, h = clicksC.height/dpr;
+  const count = 70 + Math.floor(Math.random()*70);
+  for(let i=0;i<count;i++){
+    const a = Math.random()*Math.PI*2;
+    const s = 1 + Math.random()*6;
+    clicks.push({
+      x: cx,
+      y: cy,
+      vx: Math.cos(a)*s,
+      vy: Math.sin(a)*s - (Math.random()*0.8),
+      r: 0.8 + Math.random()*3.4,
+      life: 700 + Math.random()*1400,
+      t: 0
+    });
+  }
+}
+
+/* ------------------ Typing animation ------------------- */
+const phrases = ["ॐ नमः शिवाय", "Har Har Mahadev", "Satyam Shivam Sundaram"];
+let pIndex = 0, cIndex = 0, forward = true;
+function stepTyping(){
+  const full = phrases[pIndex];
+  if(forward){
+    cIndex++;
+    if(cIndex >= full.length){
+      forward = false;
+      setTimeout(stepTyping, 1000);
+      return;
+    }
+  } else {
+    cIndex--;
+    if(cIndex <= 0){
+      forward = true;
+      pIndex = (pIndex+1) % phrases.length;
+      setTimeout(stepTyping, 300);
+      return;
+    }
+  }
+  typeEl.textContent = full.slice(0,cIndex);
+  setTimeout(stepTyping, forward ? 90 + Math.random()*40 : 40 + Math.random()*20);
+}
+stepTyping();
+
+/* expose init to window just in case */
+window._initShiva = initAll;
+</script>
+</body>
+</html>
